@@ -31,7 +31,7 @@ def setup():
     tmpclient.unregister_from_core()
 
     idPubkeyMap = id_lib.BBcIdPublickeyMap(domain_id)
-    (registry_id, keypairs) = idPubkeyMap.create_user_id(num_pubkeys=1)
+    registry_id, keypairs = idPubkeyMap.create_user_id(num_pubkeys=1)
 
 
 def test_document():
@@ -62,8 +62,8 @@ def test_registry():
     registry = registry_lib.BBcRegistry(domain_id, registry_id, registry_id,
             idPubkeyMap)
 
-    (user_a_id, keypairs_a) = idPubkeyMap.create_user_id(num_pubkeys=1)
-    (user_b_id, keypairs_b) = idPubkeyMap.create_user_id(num_pubkeys=1)
+    user_a_id, keypairs_a = idPubkeyMap.create_user_id(num_pubkeys=1)
+    user_b_id, keypairs_b = idPubkeyMap.create_user_id(num_pubkeys=1)
 
     xml_string = "<doc>" + \
             "<sec>I don't remember if you can Cossack dance.</sec>" + \
