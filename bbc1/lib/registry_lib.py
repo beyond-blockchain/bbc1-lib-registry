@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 import hashlib
+import msgpack
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -43,6 +44,7 @@ registry_table_definition = [
     ["event_idx", "INTEGER"],
     ["document_id", "BLOB"],
     ["document_digest", "BLOB"],
+    ["document_spec", "BLOB"],
     ["is_single", "INTEGER"],
     ["state", "INTEGER"],
     ["last_modified", "INTEGER"]
@@ -53,9 +55,10 @@ IDX_TX_ID           = 1
 IDX_EVENT_IDX       = 2
 IDX_DOCUMENT_ID     = 3
 IDX_DOCUMENT_DIGEST = 4
-IDX_IS_SINGLE       = 5
-IDX_STATE           = 6
-IDX_LAST_MODIFIED   = 7
+IDX_DOCUMENT_SPEC   = 5
+IDX_IS_SINGLE       = 6
+IDX_STATE           = 7
+IDX_LAST_MODIFIED   = 8
 
 ST_FREE     = 0
 ST_RESERVED = 1
@@ -64,7 +67,124 @@ ST_TAKEN    = 2
 
 class Constants(app_support_lib.Constants):
 
+    DESC_BINARY     = 0
+    DESC_DICTIONARY = 1
+    DESC_STRING     = 2
+
+    O_BIT_UPDATABLE = 0b0000000000000001
+
     VERSION_CURRENT = 0
+
+
+class DocumentSpec:
+
+    def __init__(self, dic=None, description=None, expire_at=0,
+            option_updatable=True,
+            version=Constants.VERSION_CURRENT):
+        self.version = version
+
+        if dic is not None:
+            try:
+                description = dic['description']
+            except KeyError:
+                description = None
+        if description is not None:
+            if isinstance(description, str):
+                raw = description.encode()
+            elif isinstance(description, dict):
+                raw = msgpack.dumps(description, encoding='utf-8')
+            else:
+                raw = description
+            if len(raw) > Constants.MAX_INT16:
+                raise TypeError('description is too long')
+        self.description = description
+
+        if dic is not None:
+            try:
+                expire_at = dic['expire_at']
+            except KeyError:
+                expire_at = 0
+        if not isinstance(expire_at, int):
+            raise TypeError('expire_at must be int')
+        if expire_at < 0 or expire_at > Constants.MAX_INT64:
+            raise TypeError('expire_at out of range')
+        self.expire_at = expire_at
+
+        if dic is not None:
+            try:
+                option_updatable = dic['option_updatable']
+            except KeyError:
+                option_updatable = True
+        if not isinstance(option_updatable, bool):
+            raise TypeError('this option must be bool')
+        self.option_updatable = option_updatable
+
+    def __eq__(self, other):
+        if isinstance(other, DocumentSpec):
+            if self.description != other.description \
+                    or self.expire_at != other.expire_at \
+                    or self.option_updatable != other.option_updatable:
+                return False
+            return True
+        else:
+            return False
+
+
+    @staticmethod
+    def from_serialized_data(ptr, data):
+        try:
+            ptr, version = bbclib_utils.get_n_byte_int(ptr, 2, data)
+            ptr, t = bbclib_utils.get_n_byte_int(ptr, 1, data)
+            ptr, size = bbclib_utils.get_n_byte_int(ptr, 2, data)
+            if size > 0:
+                ptr, v = bbclib_utils.get_n_bytes(ptr, size, data)
+                if t == Constants.DESC_STRING:
+                    description = v.decode()
+                elif t == Constants.DESC_DICTIONARY:
+                    description = msgpack.loads(v, encoding='utf-8')
+                else:
+                    description = v
+            else:
+                description = None
+            ptr, expire_at = bbclib_utils.get_n_byte_int(ptr, 8, data)
+            ptr, v = bbclib_utils.get_n_byte_int(ptr, 2, data)
+            option_updatable = v & Constants.O_BIT_UPDATABLE != 0
+        except:
+            raise
+        return ptr, DocumentSpec(description=description, expire_at=expire_at,
+                option_updatable=option_updatable, version=version)
+
+
+    def is_updatable(self):
+        return self.option_updatable
+
+
+    def serialize(self):
+        dat = bytearray(bbclib_utils.to_2byte(self.version))
+        if self.description is None:
+            dat.extend(bbclib_utils.to_1byte(Constants.DESC_BINARY))
+            dat.extend(bbclib_utils.to_2byte(0))
+        elif isinstance(self.description, str):
+            dat.extend(bbclib_utils.to_1byte(Constants.DESC_STRING))
+            string = self.description.encode()
+            dat.extend(bbclib_utils.to_2byte(len(string)))
+            dat.extend(string)
+        elif isinstance(self.description, dict):
+            dat.extend(bbclib_utils.to_1byte(Constants.DESC_DICTIONARY))
+            raw = msgpack.dumps(self.description, encoding='utf-8')
+            dat.extend(bbclib_utils.to_2byte(len(raw)))
+            dat.extend(raw)
+        else:
+            dat.extend(bbclib_utils.to_1byte(Constants.DESC_BINARY))
+            dat.extend(bbclib_utils.to_2byte(len(self.description)))
+            dat.extend(self.description)
+        dat.extend(bbclib_utils.to_8byte(self.expire_at))
+
+        options = Constants.O_BIT_NONE
+        if self.option_updatable:
+            options |= Constants.O_BIT_UPDATABLE
+        dat.extend(bbclib_utils.to_2byte(options))
+        return bytes(dat)
 
 
 class Document:
@@ -143,6 +263,24 @@ class Store:
         return rows[0][0]
 
 
+    def get_document_spec(self, document_id, eval_time=None):
+        if self.db_online is False:
+            return None
+        rows = self.db.exec_sql(
+            self.domain_id,
+            NAME_OF_DB,
+            ('select document_spec from registry_table where '
+             'registry_id=? and document_id=? and state=?'),
+            self.registry_id,
+            document_id,
+            ST_FREE
+        )
+        if len(rows) <= 0:
+            return None
+        _, spec = DocumentSpec.from_serialized_data(0, rows[0][0])
+        return spec
+
+
     def get_tx(self, tx_id):
         self.app.search_transaction(tx_id)
         res = self.app.callback.synchronize()
@@ -183,7 +321,8 @@ class Store:
         for i, event in enumerate(tx.events):
             if event.asset_group_id == self.registry_id:
                 self.write_utxo(tx.transaction_id, i, event.asset.user_id,
-                        event.asset.asset_file_digest, True)
+                        event.asset.asset_file_digest, event.asset.asset_body,
+                        True)
 
         for ref in tx.references:
             if ref.asset_group_id == self.registry_id:
@@ -279,18 +418,20 @@ class Store:
         return tx
 
 
-    def write_utxo(self, tx_id, idx, document_id, document_digest, is_single):
+    def write_utxo(self, tx_id, idx, document_id, document_digest,
+         document_spec, is_single):
         if self.db_online is False:
             return
         self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
-            'insert into registry_table values (?, ?, ?, ?, ?, ?, ?, ?)',
+            'insert into registry_table values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             self.registry_id,
             tx_id,
             idx,
             document_id,
             document_digest,
+            document_spec,
             is_single,
             ST_FREE,
             int(time.time())
@@ -323,14 +464,20 @@ class BBcRegistry:
         return self.store.get_document_digest(document_id, eval_time)
 
 
-    def register_document(self, user_id, document, note=None, keypair=None):
+    def get_document_spec(self, document_id, eval_time=None):
+        return self.store.get_document_spec(document_id, eval_time)
+
+
+    def register_document(self, user_id, document, document_spec,
+        keypair=None):
         if self.user_id != self.registry_id:
             raise RuntimeError('registerer must be the registry')
 
         tx = bbclib.make_transaction(event_num=1)
         tx.events[0].asset_group_id = self.registry_id
         tx.events[0].asset.add(user_id=document.document_id,
-                asset_file=document.file(), asset_body=note)
+                asset_file=document.file(),
+                asset_body=document_spec.serialize())
 
         tx.events[0].add(mandatory_approver=self.registry_id)
         tx.events[0].add(mandatory_approver=user_id)
@@ -344,7 +491,7 @@ class BBcRegistry:
                 keypair, self.idPublickeyMap)
 
 
-    def make_event(self, ref_indices, user_id, document, note=None):
+    def make_event(self, ref_indices, user_id, document, document_spec):
         event = bbclib.BBcEvent(asset_group_id=self.registry_id)
         for i in ref_indices:
             event.add(reference_index=i)
@@ -352,7 +499,8 @@ class BBcRegistry:
         event.add(mandatory_approver=user_id)
         event.add(asset=bbclib.BBcAsset())
         event.asset.add(user_id=document.document_id,
-                asset_file=document.file(), asset_body=note)
+                asset_file=document.file(),
+                asset_body=document_spec.serialize())
         return event
 
 
@@ -365,8 +513,18 @@ class BBcRegistry:
                 self.idPublickeyMap)
 
 
-    def update_document(self, user_id, new_user_id, document, note=None,
-            transaction=None, keypair=None, keypair_registry=None):
+    def update_document(self, user_id, new_user_id, document,
+            document_spec=None, transaction=None,
+            keypair=None, keypair_registry=None):
+        document_spec0 = self.get_document_spec(document.document_id)
+        if document_spec0 is None:
+            raise TypeError('document does not exist')
+        if not document_spec0.is_updatable():
+            raise TypeError('document is not updatable')
+
+        if document_spec is None:
+            document_spec = document_spec0
+
         if transaction is None:
             tx = bbclib.BBcTransaction()
             base_refs = 0
@@ -380,7 +538,8 @@ class BBcRegistry:
                 transaction=tx, ref_transaction=ref_tx,
                 event_index_in_ref=index)
         tx.add(reference=ref)
-        tx.add(event=self.make_event([base_refs], new_user_id, document, note))
+        tx.add(event=self.make_event([base_refs], new_user_id, document,
+                document_spec))
 
         if keypair is None:
             return tx
