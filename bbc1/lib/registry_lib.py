@@ -197,7 +197,7 @@ class Document:
     def file(self):
         dat = bytearray()
         for e in self.root:
-            string = e.text.encode()
+            string = ET.tostring(e, encoding="utf-8")
             dat.extend(hashlib.sha256(string).digest())
         return bytes(dat)
 
