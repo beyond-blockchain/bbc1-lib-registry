@@ -2,6 +2,7 @@
 import hashlib
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 sys.path.extend(["../"])
 
@@ -171,9 +172,12 @@ def test_document():
     assert document.root[2].text == "what I am."
 
     dat = bytearray()
-    dat.extend(hashlib.sha256(document.root[0].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[1].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[2].text.encode()).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[0],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[1],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[2],
+            encoding="utf-8")).digest())
 
     assert document.file() == bytes(dat)
 
@@ -196,9 +200,12 @@ def test_registry():
     document.set_document_id(bbclib.get_new_id("sample document 1"))
 
     dat = bytearray()
-    dat.extend(hashlib.sha256(document.root[0].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[1].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[2].text.encode()).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[0],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[1],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[2],
+            encoding="utf-8")).digest())
 
     digest = hashlib.sha256(bytes(dat)).digest()
 
@@ -232,9 +239,12 @@ def test_registry():
     document.root[1].text = "How much is it?"
 
     dat = bytearray()
-    dat.extend(hashlib.sha256(document.root[0].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[1].text.encode()).digest())
-    dat.extend(hashlib.sha256(document.root[2].text.encode()).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[0],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[1],
+            encoding="utf-8")).digest())
+    dat.extend(hashlib.sha256(ET.tostring(document.root[2],
+            encoding="utf-8")).digest())
 
     assert document.file() == bytes(dat)
 

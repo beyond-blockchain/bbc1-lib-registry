@@ -39,7 +39,7 @@ bbc1_classifiers = [
 
 setup(
     name='bbc1-lib-registry',
-    version='0.2',
+    version='0.3',
     description='General Registry library of Beyond Blockchain One',
     long_description=readme,
     url='https://github.com/beyond-blockchain',
