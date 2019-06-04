@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import binascii
 import hashlib
 import sys
 import time
@@ -174,10 +175,21 @@ def test_document():
     dat = bytearray()
     dat.extend(hashlib.sha256(ET.tostring(document.root[0],
             encoding="utf-8")).digest())
-    dat.extend(hashlib.sha256(ET.tostring(document.root[1],
-            encoding="utf-8")).digest())
+    dig = hashlib.sha256(ET.tostring(document.root[1],
+            encoding="utf-8")).digest()
+    dat.extend(dig)
     dat.extend(hashlib.sha256(ET.tostring(document.root[2],
             encoding="utf-8")).digest())
+
+    assert document.file() == bytes(dat)
+
+    xml_string = "<doc>" + \
+            "<sec>Today,</sec>" + \
+            "<digest>{0}</digest>".format(binascii.b2a_hex(dig).decode()) + \
+            "<sec>what I am.</sec>" + \
+            "</doc>"
+
+    document = registry_lib.Document.from_xml_string(xml_string)
 
     assert document.file() == bytes(dat)
 
