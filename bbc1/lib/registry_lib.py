@@ -14,8 +14,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+import binascii
 import hashlib
 import msgpack
+import string
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -195,10 +197,16 @@ class Document:
 
 
     def file(self):
+
         dat = bytearray()
         for e in self.root:
-            string = ET.tostring(e, encoding="utf-8")
-            dat.extend(hashlib.sha256(string).digest())
+            if e.tag == 'digest':
+                digest = binascii.a2b_hex(e.text)
+                dat.extend(digest)
+            else:
+                string = ET.tostring(e, encoding="utf-8")
+                dat.extend(hashlib.sha256(string).digest())
+
         return bytes(dat)
 
 
