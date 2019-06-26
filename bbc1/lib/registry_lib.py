@@ -19,6 +19,7 @@ import hashlib
 import msgpack
 import string
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -221,11 +222,13 @@ class Document:
 
 class Store:
 
+    lock = threading.Lock()
+
+
     def __init__(self, domain_id, registry_id, app):
         self.domain_id = domain_id
         self.registry_id = registry_id
         self.app = app
-        self.db_online = True
         self.db = app_support_lib.Database()
         self.db.setup_db(domain_id, NAME_OF_DB)
         self.db.create_table_in_db(domain_id, NAME_OF_DB,
@@ -236,12 +239,9 @@ class Store:
                 'registry_tx_id_table',
                 registry_tx_id_table_definition,
                 primary_key=0, indices=[1])
-        self.independent = False
 
 
     def delete_utxo(self, tx_id, idx):
-        if self.db_online is False:
-            return None
         return self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
@@ -255,8 +255,6 @@ class Store:
 
 
     def get_document_digest(self, document_id, eval_time=None):
-        if self.db_online is False:
-            return None
         rows = self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
@@ -272,8 +270,6 @@ class Store:
 
 
     def get_document_spec(self, document_id, eval_time=None):
-        if self.db_online is False:
-            return None
         rows = self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
@@ -338,15 +334,25 @@ class Store:
 
 
     def push_tx(self, tx_id, tx):
-        if self.db_online is False:
-            return
-        self.db.exec_sql(
+
+        Store.lock.acquire()
+
+        rows = self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
-            'insert into registry_tx_id_table values (?, ?)',
-            tx_id,
-            bbclib.serialize(tx)
+            'select rowid from registry_tx_id_table where tx_id=?',
+            tx_id
         )
+        if len(rows) <= 0:
+            self.db.exec_sql(
+                self.domain_id,
+                NAME_OF_DB,
+                'insert into registry_tx_id_table values (?, ?)',
+                tx_id,
+                bbclib.serialize(tx)
+            )
+
+        Store.lock.release()
 
 
     def read_utxo(self, document_id):
@@ -362,8 +368,6 @@ class Store:
 
 
     def reserve_utxo(self, tx_id, idx):
-        if self.db_online is False:
-            return None
         return self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
@@ -382,13 +386,6 @@ class Store:
                 self.reserve_utxo(ref.transaction_id, ref.event_index_in_ref)
 
 
-    '''
-    mainly for testing purposes.
-    '''
-    def set_db_online(self, is_online=True):
-        self.db_online = is_online
-
-
     def sign(self, transaction, user_id, keypair):
         sig = transaction.sign(
                 private_key=keypair.private_key,
@@ -405,8 +402,6 @@ class Store:
 
 
     def take_tx(self, tx_id):
-        if self.db_online is False:
-            return None
         rows = self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
@@ -416,34 +411,39 @@ class Store:
         if len(rows) <= 0:
             return None
         tx, fmt = bbclib.deserialize(rows[0][0])
-        if self.independent:
-            self.db.exec_sql(
-                self.domain_id,
-                NAME_OF_DB,
-                'delete from registry_tx_id_table where tx_id=?',
-                tx_id
-            )
         return tx
 
 
     def write_utxo(self, tx_id, idx, document_id, document_digest,
          document_spec, is_single):
-        if self.db_online is False:
-            return
-        self.db.exec_sql(
+
+        Store.lock.acquire()
+
+        rows = self.db.exec_sql(
             self.domain_id,
             NAME_OF_DB,
-            'insert into registry_table values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            self.registry_id,
+            'select rowid from registry_table where tx_id=? and event_idx=?',
             tx_id,
-            idx,
-            document_id,
-            document_digest,
-            document_spec,
-            is_single,
-            ST_FREE,
-            int(time.time())
+            idx
         )
+        if len(rows) <= 0:
+            self.db.exec_sql(
+                self.domain_id,
+                NAME_OF_DB,
+                'insert into registry_table ' \
+                'values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                self.registry_id,
+                tx_id,
+                idx,
+                document_id,
+                document_digest,
+                document_spec,
+                is_single,
+                ST_FREE,
+                int(time.time())
+            )
+
+        Store.lock.release()
 
 
 class BBcRegistry:
