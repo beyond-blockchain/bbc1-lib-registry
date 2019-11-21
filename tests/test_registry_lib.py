@@ -11,6 +11,8 @@ from bbc1.core import bbc_app
 from bbc1.core import bbclib
 from bbc1.core.bbc_config import DEFAULT_CORE_PORT
 from bbc1.lib import id_lib, registry_lib
+from bbc1.lib.app_support_lib import TransactionLabel
+
 
 domain_id = None
 registry_id = None
@@ -223,12 +225,18 @@ def test_registry():
 
     document_spec = registry_lib.DocumentSpec(description="Hitorikko")
 
-    registry.register_document(user_a_id, document, document_spec,
-            keypair=keypairs[0])
+    label_group_id = bbclib.get_new_id('label_group', include_timestamp=False)
+    label_id = TransactionLabel.create_label_id('label1', '3or4')
+    label = TransactionLabel(label_group_id, label_id=label_id)
+
+    tx = registry.register_document(user_a_id, document, document_spec,
+            keypair=keypairs[0], label=label)
 
     assert registry.get_document_digest(document.document_id) == digest
 
     assert registry.get_document_spec(document.document_id) == document_spec
+
+    assert label.is_labeled(tx)
 
     document_spec_dict = {
         'description': {
@@ -272,12 +280,16 @@ def test_registry():
 
     document_spec = registry_lib.DocumentSpec(option_updatable=False)
 
-    registry.update_document(user_b_id, user_b_id, document,
+    label.label_id = TransactionLabel.create_label_id('label2', '3')
+
+    tx = registry.update_document(user_b_id, user_b_id, document,
             document_spec=document_spec,
-            keypair=keypairs_b[0], keypair_registry=keypairs[0])
+            keypair=keypairs_b[0], keypair_registry=keypairs[0], label=label)
 
     assert registry.get_document_digest(document.document_id) == digest2
     assert registry.get_document_spec(document.document_id) == document_spec
+
+    assert label.get_label_id(tx) == label.label_id
 
     try:
         registry.update_document(user_b_id, user_b_id, document,
@@ -286,6 +298,8 @@ def test_registry():
         document_spec = 0
 
     assert document_spec == 0
+
+    registry.close()
 
 
 # end of tests/test_registry_lib.py
