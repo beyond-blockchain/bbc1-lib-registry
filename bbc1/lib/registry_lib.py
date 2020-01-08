@@ -197,13 +197,20 @@ class Document:
         self.root = root
 
 
-    def file(self):
+    def file(self, container=None):
+
+        if container is None:
+            container = self.root
 
         dat = bytearray()
-        for e in self.root:
+        for e in container:
             if e.tag == 'digest':
                 digest = binascii.a2b_hex(e.text)
                 dat.extend(digest)
+            elif 'container' in e.attrib and e.attrib['container'] == 'true' \
+                    and len(e) > 0:
+                d = self.file(e)
+                dat.extend(hashlib.sha256(d).digest())
             else:
                 string = ET.tostring(e, encoding="utf-8")
                 dat.extend(hashlib.sha256(string).digest())

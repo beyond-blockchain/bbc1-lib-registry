@@ -302,4 +302,54 @@ def test_registry():
     registry.close()
 
 
+def test_nested_document():
+
+    xml_string = '<doc>' + \
+            '<sec>Today,</sec>' + \
+            '<sec container="true"><w>I</w><w>am</w></sec>' + \
+            '<sec>what I am.</sec>' + \
+            '</doc>'
+
+    document = registry_lib.Document.from_xml_string(xml_string)
+
+    assert len(document.root) == 3
+    assert document.root[0].text == "Today,"
+
+    e = document.root[1]
+    assert len(e) == 2
+    assert e[0].text == 'I'
+    assert e[1].text == 'am'
+
+    assert document.root[2].text == "what I am."
+
+    dat = bytearray()
+    dat.extend(hashlib.sha256(ET.tostring(document.root[0],
+            encoding="utf-8")).digest())
+
+    dat1 = bytearray()
+    dat1.extend(hashlib.sha256(ET.tostring(e[0], encoding="utf-8")).digest())
+
+    dig = hashlib.sha256(ET.tostring(e[1], encoding="utf-8")).digest()
+    dat1.extend(dig)
+
+    dat.extend(hashlib.sha256(bytes(dat1)).digest())
+
+    dat.extend(hashlib.sha256(ET.tostring(document.root[2],
+            encoding="utf-8")).digest())
+
+    assert document.file() == bytes(dat)
+
+    xml_string = '<doc>' + \
+            '<sec>Today,</sec>' + \
+            '<sec container="true"><w>I</w>' + \
+            '<digest>{0}</digest>'.format(binascii.b2a_hex(dig).decode()) + \
+            '</sec>' + \
+            '<sec>what I am.</sec>' + \
+            '</doc>'
+
+    document = registry_lib.Document.from_xml_string(xml_string)
+
+    assert document.file() == bytes(dat)
+
+
 # end of tests/test_registry_lib.py
