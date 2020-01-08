@@ -332,7 +332,8 @@ def test_nested_document():
     dig = hashlib.sha256(ET.tostring(e[1], encoding="utf-8")).digest()
     dat1.extend(dig)
 
-    dat.extend(hashlib.sha256(bytes(dat1)).digest())
+    dig0 = hashlib.sha256(bytes(dat1)).digest()
+    dat.extend(dig0)
 
     dat.extend(hashlib.sha256(ET.tostring(document.root[2],
             encoding="utf-8")).digest())
@@ -344,6 +345,16 @@ def test_nested_document():
             '<sec container="true"><w>I</w>' + \
             '<digest>{0}</digest>'.format(binascii.b2a_hex(dig).decode()) + \
             '</sec>' + \
+            '<sec>what I am.</sec>' + \
+            '</doc>'
+
+    document = registry_lib.Document.from_xml_string(xml_string)
+
+    assert document.file() == bytes(dat)
+
+    xml_string = '<doc>' + \
+            '<sec>Today,</sec>' + \
+            '<digest>{0}</digest>'.format(binascii.b2a_hex(dig0).decode()) + \
             '<sec>what I am.</sec>' + \
             '</doc>'
 
