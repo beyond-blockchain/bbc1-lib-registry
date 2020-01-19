@@ -76,6 +76,45 @@ ST_RESERVED = 1
 ST_TAKEN    = 2
 
 
+def file(container):
+
+    dat = bytearray()
+    for e in container:
+        if e.tag == 'digest':
+            digest = binascii.a2b_hex(e.text)
+            dat.extend(digest)
+        elif 'container' in e.attrib and e.attrib['container'] == 'true' \
+                and len(e) > 0:
+            d = file(e)
+            dat.extend(hashlib.sha256(d).digest())
+        else:
+            string = ET.tostring(e, encoding="utf-8")
+            dat.extend(hashlib.sha256(string).digest())
+
+    if 'sig' in container.attrib:
+        d = bytes(dat)
+        dat = bytearray(hashlib.sha256(d).digest())
+        if 'pubkey' not in container.attrib:
+            raise ValueError('pubkey not specified')
+        pubkey = binascii.a2b_hex(container.attrib['pubkey'])
+        if 'algo' in container.attrib:
+            key_type = DIC_KEY_TYPES[container.attrib['algo']]
+        else:
+            key_type = bbclib.DEFAULT_CURVETYPE
+        sig = binascii.a2b_hex(container.attrib['sig'])
+
+        signature = bbclib.BBcSignature(key_type=key_type)
+        signature.add(signature=sig, pubkey=pubkey)
+        if not signature.verify(bytes(dat)):
+            raise ValueError('signature not verified')
+
+        dat.extend(pubkey)
+        dat.extend(bbclib_binary.to_2byte(key_type))
+        dat.extend(sig)
+
+    return bytes(dat)
+
+
 class Constants(app_support_lib.Constants):
 
     DESC_BINARY     = 0
@@ -205,46 +244,8 @@ class Document:
         self.root = root
 
 
-    def file(self, container=None):
-
-        if container is None:
-            container = self.root
-
-        dat = bytearray()
-        for e in container:
-            if e.tag == 'digest':
-                digest = binascii.a2b_hex(e.text)
-                dat.extend(digest)
-            elif 'container' in e.attrib and e.attrib['container'] == 'true' \
-                    and len(e) > 0:
-                d = self.file(e)
-                dat.extend(hashlib.sha256(d).digest())
-            else:
-                string = ET.tostring(e, encoding="utf-8")
-                dat.extend(hashlib.sha256(string).digest())
-
-        if 'sig' in container.attrib:
-            d = bytes(dat)
-            dat = bytearray(hashlib.sha256(d).digest())
-            if 'pubkey' not in container.attrib:
-                raise ValueError('pubkey not specified')
-            pubkey = binascii.a2b_hex(container.attrib['pubkey'])
-            if 'algo' in container.attrib:
-                key_type = DIC_KEY_TYPES[container.attrib['algo']]
-            else:
-                key_type = bbclib.DEFAULT_CURVETYPE
-            sig = binascii.a2b_hex(container.attrib['sig'])
-
-            signature = bbclib.BBcSignature(key_type=key_type)
-            signature.add(signature=sig, pubkey=pubkey)
-            if not signature.verify(bytes(dat)):
-                raise ValueError('signature not verified')
-
-            dat.extend(pubkey)
-            dat.extend(bbclib_binary.to_2byte(key_type))
-            dat.extend(sig)
-
-        return bytes(dat)
+    def file(self):
+        return file(self.root)
 
 
     @staticmethod
