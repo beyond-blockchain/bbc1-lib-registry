@@ -34,6 +34,14 @@ from bbc1.lib import app_support_lib
 from bbclib.libs import bbclib_binary
 
 
+DIC_KEY_TYPES = {
+    'ECDSA_SECP256k1': bbclib.KeyType.ECDSA_SECP256k1,
+    'ecdsa-secp256k1': bbclib.KeyType.ECDSA_SECP256k1,
+    'ECDSA_P256v1': bbclib.KeyType.ECDSA_P256v1,
+    'ecdsa-p256v1': bbclib.KeyType.ECDSA_P256v1,
+}
+
+
 NAME_OF_DB = 'registry_db'
 
 registry_tx_id_table_definition = [
@@ -214,6 +222,27 @@ class Document:
             else:
                 string = ET.tostring(e, encoding="utf-8")
                 dat.extend(hashlib.sha256(string).digest())
+
+        if 'sig' in container.attrib:
+            d = bytes(dat)
+            dat = bytearray(hashlib.sha256(d).digest())
+            if 'pubkey' not in container.attrib:
+                raise ValueError('pubkey not specified')
+            pubkey = binascii.a2b_hex(container.attrib['pubkey'])
+            if 'algo' in container.attrib:
+                key_type = DIC_KEY_TYPES[container.attrib['algo']]
+            else:
+                key_type = bbclib.DEFAULT_CURVETYPE
+            sig = binascii.a2b_hex(container.attrib['sig'])
+
+            signature = bbclib.BBcSignature(key_type=key_type)
+            signature.add(signature=sig, pubkey=pubkey)
+            if not signature.verify(bytes(dat)):
+                raise ValueError('signature not verified')
+
+            dat.extend(pubkey)
+            dat.extend(bbclib_binary.to_2byte(key_type))
+            dat.extend(sig)
 
         return bytes(dat)
 

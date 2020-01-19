@@ -12,6 +12,7 @@ from bbc1.core import bbclib
 from bbc1.core.bbc_config import DEFAULT_CORE_PORT
 from bbc1.lib import id_lib, registry_lib
 from bbc1.lib.app_support_lib import TransactionLabel
+from bbclib.libs import bbclib_binary
 
 
 domain_id = None
@@ -361,6 +362,115 @@ def test_nested_document():
     document = registry_lib.Document.from_xml_string(xml_string)
 
     assert document.file() == bytes(dat)
+
+
+def test_signed_document():
+
+    xml_string = "<doc>" + \
+            "<sec>Today,</sec>" + \
+            "<sec>I am</sec>" + \
+            "<sec>what I am.</sec>" + \
+            "</doc>"
+
+    document = registry_lib.Document.from_xml_string(xml_string)
+
+    digest = hashlib.sha256(document.file()).digest()
+
+    keypair = bbclib.KeyPair()
+    keypair.generate()
+
+    sig = keypair.sign(digest)
+
+    document.root.attrib['sig'] = binascii.b2a_hex(sig).decode()
+    document.root.attrib['pubkey'] = binascii.b2a_hex(keypair.public_key)
+
+    d = document.file()
+    dat = bytearray(digest)
+    dat.extend(keypair.public_key)
+    dat.extend(bbclib_binary.to_2byte(bbclib.KeyType.ECDSA_P256v1))
+    dat.extend(sig)
+    assert d == bytes(dat)
+
+    keypair = bbclib.KeyPair(curvetype=bbclib.KeyType.ECDSA_SECP256k1)
+    keypair.generate()
+
+    sig = keypair.sign(digest)
+
+    document.root.attrib['sig'] = binascii.b2a_hex(sig).decode()
+    document.root.attrib['pubkey'] = binascii.b2a_hex(keypair.public_key)
+    document.root.attrib['algo'] = 'ecdsa-secp256k1'
+
+    d = document.file()
+    dat = bytearray(digest)
+    dat.extend(keypair.public_key)
+    dat.extend(bbclib_binary.to_2byte(bbclib.KeyType.ECDSA_SECP256k1))
+    dat.extend(sig)
+    assert d == bytes(dat)
+
+    keypair = bbclib.KeyPair()
+    keypair.generate()
+
+    sig = keypair.sign(digest)
+
+    document.root.attrib['sig'] = binascii.b2a_hex(sig).decode()
+    document.root.attrib['pubkey'] = binascii.b2a_hex(keypair.public_key)
+    document.root.attrib['algo'] = 'ecdsa-p256v1'
+
+    d = document.file()
+    dat = bytearray(digest)
+    dat.extend(keypair.public_key)
+    dat.extend(bbclib_binary.to_2byte(bbclib.KeyType.ECDSA_P256v1))
+    dat.extend(sig)
+    assert d == bytes(dat)
+
+
+def test_error_signed_document():
+
+    xml_string = "<doc>" + \
+            "<sec>Today,</sec>" + \
+            "<sec>I am</sec>" + \
+            "<sec>what I am.</sec>" + \
+            "</doc>"
+
+    document = registry_lib.Document.from_xml_string(xml_string)
+
+    digest = hashlib.sha256(document.file()).digest()
+
+    keypair = bbclib.KeyPair()
+    keypair.generate()
+
+    sig = keypair.sign(digest)
+
+    document.root.attrib['sig'] = binascii.b2a_hex(sig).decode()
+
+    try:
+        d = document.file()
+        x = 0
+    except ValueError:
+        x = 1
+
+    assert x == 1
+
+    document.root.attrib['pubkey'] = binascii.b2a_hex(keypair.public_key)
+    document.root.attrib['sig'] += '00'
+
+    try:
+        d = document.file()
+        x = 1
+    except ValueError:
+        x = 0
+
+    assert x == 0
+
+    document.root.attrib['algo'] = 'ecsda-p256v1'
+
+    try:
+        d = document.file()
+        x = 0
+    except KeyError:
+        x = 1
+
+    assert x == 1
 
 
 # end of tests/test_registry_lib.py
